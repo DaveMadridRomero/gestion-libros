@@ -1,9 +1,9 @@
 package books
 
 import (
-	"github.com/DaveMadridRomero/Gestion-Libros/internal/database"
+	"errors" // Necesario para definir los errores
 
-	"github.com/gorilla/mux"
+	"github.com/DaveMadridRomero/Gestion-Libros/internal/database"
 )
 
 type Book struct {
@@ -15,12 +15,15 @@ type Book struct {
 	Stock  int     `json:"stock"`
 }
 
+// Errores específicos del paquete books
+var (
+	ErrInvalidDiscount = errors.New("descuento inválido: el porcentaje debe estar entre 0 y 100")
+	ErrBookNotFound    = errors.New("libro no encontrado") // Asegúrate de que este error esté aquí
+	ErrBookCreation    = errors.New("error al crear el libro en la base de datos")
+)
+
 func AutoMigrate() {
 	database.DB.AutoMigrate(&Book{})
-}
-func RegisterRoutes(r *mux.Router) {
-	r.HandleFunc("/books", GetAllBooks).Methods("GET")
-	r.HandleFunc("/books/create", CreateBook).Methods("POST")
 }
 
 // IsAvailable verifica si el libro tiene stock disponible

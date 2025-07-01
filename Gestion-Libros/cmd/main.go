@@ -4,56 +4,72 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/DaveMadridRomero/Gestion-Libros/internal/books"
 	"github.com/DaveMadridRomero/Gestion-Libros/internal/config"
 	"github.com/DaveMadridRomero/Gestion-Libros/internal/database"
 	"github.com/DaveMadridRomero/Gestion-Libros/internal/orders"
-	"github.com/DaveMadridRomero/Gestion-Libros/internal/users" // Asegúrate de que users esté importado
+	"github.com/DaveMadridRomero/Gestion-Libros/internal/users"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
 )
 
 func main() {
-	// Cargar configuración
 	config.LoadEnv()
-
-	// Conectar base de datos
 	database.Connect()
 
-	// --- ¡MUY IMPORTANTE! REALIZAR LA MIGRACIÓN DE LA BASE DE DATOS ---
-	// Esto creará las tablas 'users', 'books', 'orders' (y otras si las agregas)
-	// si no existen, basándose en tus structs.
-	err := database.DB.AutoMigrate(&users.User{}, &books.Book{}, &orders.Order{}) //
+	err := database.DB.AutoMigrate(&users.User{}, &books.Book{}, &orders.Order{})
 	if err != nil {
-		log.Fatalf("Error al migrar la base de datos: %v", err) //
+		log.Fatalf("Error al migrar la base de datos: %v", err)
 	}
-	log.Println("Migración de la base de datos completada.") //
-	// --- FIN DE MIGRACIÓN ---
+	log.Println("Migración de la base de datos completada.")
 
-	// Crear router
 	r := mux.NewRouter()
 
-	// Registrar rutas de usuarios
+	// ====================================================================
+	// --- REGISTRO DE RUTAS API (¡DEBE IR ANTES DE LAS RUTAS ESTÁTICAS!) ---
+	// ====================================================================
 	users.RegisterRoutes(r)
 	books.RegisterRoutes(r)
 	orders.RegisterRoutes(r)
+	// Agrega aquí cualquier otra ruta API (ej. admin, reviews)
 
+	// ====================================================================
+	// --- CONFIGURACIÓN PARA SERVIR ARCHIVOS ESTÁTICOS ---
+	// ====================================================================
+
+	// 1. Sirve la carpeta 'static' dentro de 'web/templates'
+	// Es decir, 'your_project_root/web/templates/static/'
+	// La URL en el navegador '/static/...' se mapea a 'web/templates/static/...'
+	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./web/templates/static/"))))
+
+	// 2. Sirve el index.html y cualquier otro archivo directamente en 'web/templates'
+	// Es decir, 'your_project_root/web/templates/index.html'
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./web/templates/index.html")
+	}).Methods("GET")
+
+	// ====================================================================
 	// --- Configuración CORS ---
+	// ====================================================================
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"*"},                                       // Permite cualquier origen (para desarrollo). En producción, especifica tus dominios.
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}, // Métodos permitidos
-		AllowedHeaders:   []string{"Authorization", "Content-Type"},           // Encabezados permitidos
-		ExposedHeaders:   []string{"Link"},                                    // Otros encabezados que quieras exponer
-		AllowCredentials: true,                                                // Permite el envío de credenciales (cookies, encabezados de autorización)
-		MaxAge:           300,                                                 // Tiempo de caché de la pre-verificación OPTIONS
+		AllowedOrigins:   []string{"http://localhost:8080", "http://127.0.0.1:8080", "http://127.0.0.1:5500"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300,
 	})
 
-	// Envuelve el router con el middleware CORS
 	handler := c.Handler(r)
-	// --- Fin de Configuración CORS ---
 
-	fmt.Println("Servidor corriendo en http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", handler))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	fmt.Printf("Servidor corriendo en http://localhost:%s\n", port)
+	log.Fatal(http.ListenAndServe(":"+port, handler))
 }
