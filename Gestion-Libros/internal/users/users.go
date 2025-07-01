@@ -14,69 +14,71 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// Función auxiliar para enviar mensajes de error en formato JSON
 func sendJSONError(w http.ResponseWriter, message string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(map[string]string{"message": message})
 }
 
+// User representa la estructura del usuario en la base de datos
+// El campo Password se recibe en JSON y se almacena cifrado
 type User struct {
-	ID    uint   `gorm:"primaryKey" json:"id"`
-	Name  string `json:"name"`
-	Email string `gorm:"unique" json:"email"`
-	// ¡CAMBIO AQUÍ! Ahora el campo Password sí se decodificará del JSON entrante
+	ID       uint   `gorm:"primaryKey" json:"id"`
+	Name     string `json:"name"`
+	Email    string `gorm:"unique" json:"email"`
 	Password string `json:"password"`
 }
 
-// Struct auxiliar para la respuesta, para NO enviar la contraseña
+// UserResponse es la estructura que se envía al cliente para evitar exponer la contraseña
 type UserResponse struct {
 	ID    uint   `json:"id"`
 	Name  string `json:"name"`
 	Email string `json:"email"`
-	// Aquí NO incluimos el campo Password
 }
 
+// RegisterRoutes registra las rutas para registro y login de usuarios
 func RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/register", RegisterHandler).Methods("POST")
 	r.HandleFunc("/login", LoginHandler).Methods("POST")
 }
 
+// RegisterHandler procesa el registro de un nuevo usuario
 func RegisterHandler(w http.ResponseWriter, r *http.Request) {
-	var input User // input es el User que recibimos del JSON
+	var input User
+
+	// Decodifico el JSON recibido al struct User
 	err := json.NewDecoder(r.Body).Decode(&input)
-
-	log.Printf("Intento de registro: Email=%s, Name=%s, Password (recibido)=%s", input.Email, input.Name, input.Password) // Vuelve a revisar este log después del cambio
-
 	if err != nil {
 		log.Printf("Error al decodificar JSON: %v", err)
 		sendJSONError(w, "Error al procesar la solicitud JSON.", http.StatusBadRequest)
 		return
 	}
 
-	// Asegúrate de que todos los campos requeridos estén presentes y no vacíos.
+	// Validar que los campos requeridos no estén vacíos
 	if input.Email == "" || input.Password == "" || input.Name == "" {
 		sendJSONError(w, "Datos inválidos: nombre, email y contraseña son requeridos.", http.StatusBadRequest)
 		return
 	}
 
-	// Cifrar la contraseña
+	// Cifrar la contraseña usando bcrypt antes de guardar
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	if err != nil {
 		sendJSONError(w, "Error al procesar contraseña.", http.StatusInternalServerError)
 		return
 	}
+	input.Password = string(hashedPassword)
 
-	input.Password = string(hashedPassword) // Almacenamos la contraseña cifrada en el campo Password
+	// Intentar crear el usuario en la base de datos
 	result := database.DB.Create(&input)
-
 	if result.Error != nil {
 		log.Printf("Error al crear usuario en DB: %v", result.Error)
-		sendJSONError(w, "No se pudo crear el usuario. El email podría ya estar en uso o hay un problema en la base de datos.", http.StatusInternalServerError)
+		sendJSONError(w, "No se pudo crear el usuario. El email podría estar en uso o hay un problema en la base de datos.", http.StatusInternalServerError)
 		return
 	}
 
+	// Responder con éxito, sin incluir la contraseña
 	w.WriteHeader(http.StatusCreated)
-	// Para la respuesta, crea un UserResponse para no enviar la contraseña
 	responseUser := UserResponse{
 		ID:    input.ID,
 		Name:  input.Name,
@@ -84,10 +86,11 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"message": "Usuario creado con éxito",
-		"user":    responseUser, // Puedes enviar los datos del usuario (sin contraseña)
+		"user":    responseUser,
 	})
 }
 
+// LoginHandler procesa el inicio de sesión y genera un token JWT si las credenciales son correctas
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	var creds struct {
 		Email    string `json:"email"`
@@ -95,27 +98,28 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(r.Body).Decode(&creds)
 
-	log.Printf("Intento de login: Email=%s", creds.Email)
-
+	// Busco el usuario en la base de datos según el email proporcionado
 	var user User
 	result := database.DB.Where("email = ?", creds.Email).First(&user)
 	if result.Error != nil {
-		log.Printf("Error al buscar usuario en DB para login: %v", result.Error)
 		sendJSONError(w, "Usuario no encontrado.", http.StatusUnauthorized)
 		return
 	}
 
+	// Comparo la contraseña enviada con el hash almacenado
 	err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(creds.Password))
 	if err != nil {
 		sendJSONError(w, "Contraseña incorrecta.", http.StatusUnauthorized)
 		return
 	}
 
+	// Creo el token JWT con user_id y expiración de 72 horas
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id": user.ID,
-		"exp":     time.Now().Add(time.Hour * 72).Unix(),
+		"exp":     time.Now().Add(72 * time.Hour).Unix(),
 	})
 
+	// Firmo el token con la clave secreta del entorno
 	secret := os.Getenv("JWT_SECRET")
 	tokenString, err := token.SignedString([]byte(secret))
 	if err != nil {
@@ -123,5 +127,6 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Devuelvo el token al cliente
 	json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
 }

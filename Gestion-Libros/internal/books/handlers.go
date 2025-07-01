@@ -2,68 +2,64 @@ package books
 
 import (
 	"encoding/json"
-	"log" // Para logs de depuración
+	"log"
 	"net/http"
-	"strconv" // Para convertir string a uint (ID)
+	"strconv"
 
-	"github.com/DaveMadridRomero/Gestion-Libros/internal/middlewares" // Importa tu middleware
-	"github.com/gorilla/mux"                                          // Para manejar rutas con variables
+	"github.com/DaveMadridRomero/Gestion-Libros/internal/middlewares"
+	"github.com/gorilla/mux"
 )
 
-// sendJSONError es una función de utilidad para enviar respuestas de error en formato JSON.
-// La he copiado de users/handlers.go para consistencia.
+// Función auxiliar para enviar mensajes de error en formato JSON
 func sendJSONError(w http.ResponseWriter, message string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(map[string]string{"message": message})
 }
 
-// repo es la instancia de tu BookRepository que se usará para interactuar con la DB.
+// Defino el repositorio que usará las funciones de acceso a datos de libros
 var repo BookRepository = &GormBookRepo{}
 
-// RegisterRoutes registra todas las rutas HTTP relacionadas con los libros.
-// Algunas rutas están protegidas por JWTAuthMiddleware.
+// Registro de todas las rutas relacionadas con libros
 func RegisterRoutes(r *mux.Router) {
-	// Rutas públicas (si las hubiera, aunque para libros suelen ser protegidas)
-	// r.HandleFunc("/books", GetAllBooks).Methods("GET") // Si permites ver libros sin autenticar
-
-	// Rutas protegidas por JWT
+	// Agrupo todas las rutas bajo el prefijo /books y les aplico el middleware JWT
 	protectedBooksRoutes := r.PathPrefix("/books").Subrouter()
-	protectedBooksRoutes.Use(middlewares.JWTAuthMiddleware) // Aplica el middleware JWT a todas las rutas de este subrouter
+	protectedBooksRoutes.Use(middlewares.JWTAuthMiddleware)
 
-	protectedBooksRoutes.HandleFunc("", GetAllBooks).Methods("GET")        // GET /books
-	protectedBooksRoutes.HandleFunc("/create", CreateBook).Methods("POST") // POST /books/create
-	protectedBooksRoutes.HandleFunc("/{id}", GetBookByID).Methods("GET")   // GET /books/{id}
-	protectedBooksRoutes.HandleFunc("/{id}", DeleteBook).Methods("DELETE") // DELETE /books/{id}
+	protectedBooksRoutes.HandleFunc("", GetAllBooks).Methods("GET")
+	protectedBooksRoutes.HandleFunc("/create", CreateBook).Methods("POST")
+	protectedBooksRoutes.HandleFunc("/{id}", GetBookByID).Methods("GET")
+	protectedBooksRoutes.HandleFunc("/{id}", DeleteBook).Methods("DELETE")
 }
 
-// GetAllBooks obtiene todos los libros desde la base de datos
+// Retorna todos los libros disponibles en la base de datos
 func GetAllBooks(w http.ResponseWriter, r *http.Request) {
 	books, err := repo.GetAll()
 	if err != nil {
-		log.Printf("Error al obtener todos los libros: %v", err)
+		log.Printf("Error al obtener libros: %v", err)
 		sendJSONError(w, "No se pudieron obtener los libros", http.StatusInternalServerError)
 		return
 	}
 	json.NewEncoder(w).Encode(books)
 }
 
-// CreateBook permite agregar un nuevo libro a la plataforma
+// Crea un nuevo libro a partir de los datos recibidos en el cuerpo de la solicitud
 func CreateBook(w http.ResponseWriter, r *http.Request) {
 	var book Book
 	err := json.NewDecoder(r.Body).Decode(&book)
 	if err != nil {
-		log.Printf("Error al decodificar JSON para crear libro: %v", err)
+		log.Printf("Error al parsear el JSON: %v", err)
 		sendJSONError(w, "Entrada inválida. Asegúrate de enviar un JSON válido.", http.StatusBadRequest)
 		return
 	}
 
+	// Valido campos obligatorios antes de guardar
 	if book.Title == "" || book.Author == "" || book.Price <= 0 {
-		sendJSONError(w, "Faltan campos requeridos: título, autor y precio deben ser válidos y positivos.", http.StatusBadRequest)
+		sendJSONError(w, "Faltan campos requeridos o los valores son inválidos.", http.StatusBadRequest)
 		return
 	}
 
-	// Verificamos que el stock sea positivo
+	// Verifico que haya al menos un libro en stock
 	if !book.IsAvailable() {
 		sendJSONError(w, "El libro debe tener al menos una unidad en stock.", http.StatusBadRequest)
 		return
@@ -71,7 +67,7 @@ func CreateBook(w http.ResponseWriter, r *http.Request) {
 
 	err = repo.Create(&book)
 	if err != nil {
-		log.Printf("Error al crear libro en DB: %v", err)
+		log.Printf("Error al crear el libro: %v", err)
 		sendJSONError(w, ErrBookCreation.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -80,22 +76,22 @@ func CreateBook(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"message": "Libro creado exitosamente"})
 }
 
-// GetBookByID obtiene un libro específico por su ID desde la base de datos.
+// Busca un libro por su ID y lo devuelve como respuesta
 func GetBookByID(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	idStr := vars["id"]
 
-	id, err := strconv.ParseUint(idStr, 10, 32) // Convertir ID de string a uint
+	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		log.Printf("Error: ID de libro inválido recibido: %s. Error: %v", idStr, err)
+		log.Printf("ID inválido recibido: %s - %v", idStr, err)
 		sendJSONError(w, "ID de libro inválido.", http.StatusBadRequest)
 		return
 	}
 
 	book, err := repo.GetByID(uint(id))
 	if err != nil {
-		log.Printf("Error al obtener libro con ID %d desde DB: %v", id, err)
-		if err.Error() == "record not found" { // GORM devuelve "record not found" si no lo encuentra
+		log.Printf("No se encontró el libro con ID %d: %v", id, err)
+		if err.Error() == "record not found" {
 			sendJSONError(w, ErrBookNotFound.Error(), http.StatusNotFound)
 		} else {
 			sendJSONError(w, "Error al obtener el libro.", http.StatusInternalServerError)
@@ -107,22 +103,22 @@ func GetBookByID(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(book)
 }
 
-// DeleteBook elimina un libro específico por su ID de la base de datos.
+// Elimina un libro según su ID
 func DeleteBook(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	idStr := vars["id"]
 
-	id, err := strconv.ParseUint(idStr, 10, 32) // Convertir ID de string a uint
+	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		log.Printf("Error: ID de libro inválido recibido para eliminación: %s. Error: %v", idStr, err)
+		log.Printf("ID inválido recibido para eliminación: %s - %v", idStr, err)
 		sendJSONError(w, "ID de libro inválido.", http.StatusBadRequest)
 		return
 	}
 
 	err = repo.Delete(uint(id))
 	if err != nil {
-		log.Printf("Error al eliminar libro con ID %d desde DB: %v", id, err)
-		if err.Error() == "record not found" { // GORM devuelve "record not found" si no existe
+		log.Printf("Error al eliminar libro con ID %d: %v", id, err)
+		if err.Error() == "record not found" {
 			sendJSONError(w, ErrBookNotFound.Error(), http.StatusNotFound)
 		} else {
 			sendJSONError(w, "Error al eliminar el libro.", http.StatusInternalServerError)
@@ -131,6 +127,6 @@ func DeleteBook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK) // 200 OK
+	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Libro eliminado exitosamente."})
 }
