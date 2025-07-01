@@ -16,6 +16,23 @@
         .container {
             max-width: 1200px;
         }
+        /* Clase para el botón de eliminar, si quieres un estilo más específico o no usas btn-danger de bootstrap */
+        .btn-danger {
+            background-color: #dc3545; /* Color rojo de Bootstrap */
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.25rem;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
@@ -107,7 +124,7 @@
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Género</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Precio</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock</th>
-                            </tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th> </tr>
                         </thead>
                         <tbody id="books-table-body" class="bg-white divide-y divide-gray-200">
                             </tbody>
@@ -127,7 +144,7 @@
 
         // Referencias a los elementos HTML principales que voy a manipular. Así no tengo que buscarlos cada vez.
         const authSection = document.getElementById('auth-section'); // La sección para login/registro
-        const appSection = document.getElementById('app-section');   // La sección principal de la app
+        const appSection = document.getElementById('app-section');    // La sección principal de la app
         const messageContainer = document.getElementById('message-container'); // Para mostrar mensajes (éxito, error, etc.)
 
         // Referencias a los formularios y botones de autenticación.
@@ -280,22 +297,37 @@
                 if (response.ok) { // Si todo salió bien.
                     booksTableBody.innerHTML = ''; // Limpio la tabla antes de agregar los nuevos libros.
                     if (books.length === 0) { // Si no hay libros, muestro un mensaje.
-                        booksTableBody.innerHTML = '<tr><td colspan="6" class="px-6 py-4 whitespace-nowrap text-center text-gray-500">No hay libros disponibles.</td></tr>';
+                        booksTableBody.innerHTML = '<tr><td colspan="7" class="px-6 py-4 whitespace-nowrap text-center text-gray-500">No hay libros disponibles.</td></tr>';
+                        // NOTA: colspan ahora es 7 porque añadimos una columna de "Acciones"
                         return;
                     }
                     // Itero sobre cada libro que recibo y creo una fila en la tabla para él.
                     books.forEach(book => {
-                        const row = `
-                            <tr>
-                                <td class="px-6 py-4 whitespace-nowrap">${book.id}</td>
-                                <td class="px-6 py-4 whitespace-nowrap">${book.title}</td>
-                                <td class="px-6 py-4 whitespace-nowrap">${book.author}</td>
-                                <td class="px-6 py-4 whitespace-nowrap">${book.genre}</td>
-                                <td class="px-6 py-4 whitespace-nowrap">$${book.price.toFixed(2)}</td>
-                                <td class="px-6 py-4 whitespace-nowrap">${book.stock}</td>
-                            </tr>
-                        `;
-                        booksTableBody.innerHTML += row; // Agrego la fila a la tabla.
+                        const row = booksTableBody.insertRow(); // Usamos insertRow para mayor control y para añadir el event listener
+                        row.insertCell(0).classList.add('px-6', 'py-4', 'whitespace-nowrap');
+                        row.insertCell(0).textContent = book.id;
+                        row.insertCell(1).classList.add('px-6', 'py-4', 'whitespace-nowrap');
+                        row.insertCell(1).textContent = book.title;
+                        row.insertCell(2).classList.add('px-6', 'py-4', 'whitespace-nowrap');
+                        row.insertCell(2).textContent = book.author;
+                        row.insertCell(3).classList.add('px-6', 'py-4', 'whitespace-nowrap');
+                        row.insertCell(3).textContent = book.genre;
+                        row.insertCell(4).classList.add('px-6', 'py-4', 'whitespace-nowrap');
+                        row.insertCell(4).textContent = `$${book.price.toFixed(2)}`;
+                        row.insertCell(5).classList.add('px-6', 'py-4', 'whitespace-nowrap');
+                        row.insertCell(5).textContent = book.stock;
+
+                        // ¡NUEVA CELDA PARA EL BOTÓN DE ELIMINAR!
+                        const actionsCell = row.insertCell(6);
+                        actionsCell.classList.add('px-6', 'py-4', 'whitespace-nowrap', 'text-right', 'text-sm', 'font-medium'); // Tailwind classes
+                        const deleteButton = document.createElement('button');
+                        deleteButton.textContent = 'Eliminar';
+                        deleteButton.classList.add('btn-danger', 'btn-sm'); // Clases para el estilo del botón
+                        deleteButton.dataset.id = book.id; // Almacenar el ID del libro
+
+                        // Añadir el listener para el botón de eliminar
+                        deleteButton.addEventListener('click', handleDeleteBook);
+                        actionsCell.appendChild(deleteButton);
                     });
                     showMessage('Libros cargados exitosamente', 'success'); // Mensaje de éxito.
                 } else { // Si hubo un error al cargar los libros.
@@ -309,6 +341,45 @@
             } catch (error) {
                 // Error de red o comunicación al intentar cargar libros.
                 showMessage('Error de red al cargar libros: ' + error.message, 'error');
+            }
+        }
+
+        // --- NUEVA FUNCIÓN: handleDeleteBook ---
+        async function handleDeleteBook(event) {
+            // Obtener el ID del libro desde el atributo data-id del botón
+            const bookId = event.target.dataset.id;
+
+            // Confirmación al usuario antes de eliminar
+            if (!confirm(`¿Estás seguro de que quieres eliminar el libro con ID ${bookId}?`)) {
+                return; // Si el usuario cancela, no hacemos nada
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/books/${bookId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}` // Es crucial enviar el token JWT
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showMessage(data.message || 'Libro eliminado exitosamente.', 'success');
+                    // Si la eliminación fue exitosa, volvemos a cargar la lista de libros
+                    loadBooks(); // Ahora se llama a loadBooks()
+                } else {
+                    // Manejar errores (ej. libro no encontrado, error del servidor)
+                    showMessage(data.message || 'Error al eliminar el libro.', 'danger');
+                    if (response.status === 401) {
+                         showMessage('Sesión expirada o inválida. Por favor, inicie sesión de nuevo.', 'error');
+                         logoutBtn.click();
+                    }
+                }
+            } catch (error) {
+                console.error('Error en la solicitud de eliminación:', error);
+                showMessage('Error de conexión al intentar eliminar el libro.', 'danger');
             }
         }
 
@@ -370,4 +441,4 @@
         document.addEventListener('DOMContentLoaded', toggleAppVisibility);
     </script>
 </body>
-</html>
+</html> 

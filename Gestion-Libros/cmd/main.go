@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/DaveMadridRomero/Gestion-Libros/internal/books"
 	"github.com/DaveMadridRomero/Gestion-Libros/internal/config"
@@ -12,38 +13,61 @@ import (
 	"github.com/DaveMadridRomero/Gestion-Libros/internal/users"
 
 	"github.com/gorilla/mux"
-	"github.com/rs/cors" // ¡Nueva importación!
+	"github.com/rs/cors"
 )
 
 func main() {
-	// Cargar configuración
+	// Carga las variables de entorno desde el archivo .env
 	config.LoadEnv()
 
-	// Conectar base de datos
+	// Establece la conexión con la base de datos
 	database.Connect()
 
-	// Crear router
+	// Aplica la migración automática para las tablas de usuarios, libros y órdenes
+	err := database.DB.AutoMigrate(&users.User{}, &books.Book{}, &orders.Order{})
+	if err != nil {
+		log.Fatalf("Error al migrar la base de datos: %v", err)
+	}
+	log.Println("Migración de la base de datos completada correctamente.")
+
+	// Inicializa el router usando Gorilla Mux
 	r := mux.NewRouter()
 
-	// Registrar rutas de usuarios
+	// Registro de todas las rutas de la API (usuarios, libros, órdenes)
 	users.RegisterRoutes(r)
 	books.RegisterRoutes(r)
 	orders.RegisterRoutes(r)
 
-	// --- Configuración CORS --- ¡Aquí va lo nuevo!
+	// Configuro la ruta para servir archivos estáticos desde la carpeta /web/templates/static
+	r.PathPrefix("/static/").Handler(
+		http.StripPrefix("/static/", http.FileServer(http.Dir("./web/templates/static/"))),
+	)
+
+	// Cuando el usuario accede a "/", le envío el archivo index.html de la carpeta templates
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./web/templates/index.html")
+	}).Methods("GET")
+
+	// Habilito CORS para permitir que el frontend (por ejemplo desde localhost:5500) acceda a la API
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"*"},                                       // Permite cualquier origen (para desarrollo). En producción, especifica tus dominios.
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}, // Métodos permitidos
-		AllowedHeaders:   []string{"Authorization", "Content-Type"},           // Encabezados permitidos
-		ExposedHeaders:   []string{"Link"},                                    // Otros encabezados que quieras exponer
-		AllowCredentials: true,                                                // Permite el envío de credenciales (cookies, encabezados de autorización)
-		MaxAge:           300,                                                 // Tiempo de caché de la pre-verificación OPTIONS
+		AllowedOrigins:   []string{"http://localhost:8080", "http://127.0.0.1:8080", "http://127.0.0.1:5500"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300,
 	})
 
-	// Envuelve el router con el middleware CORS
+	// Aplico la configuración CORS al router
 	handler := c.Handler(r)
-	// --- Fin de Configuración CORS ---
 
-	fmt.Println("Servidor corriendo en http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", handler))
+	// Obtengo el puerto desde las variables de entorno, o uso 8080 por defecto
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	// Inicio del servidor
+	fmt.Printf("Servidor corriendo en http://localhost:%s\n", port)
+	log.Fatal(http.ListenAndServe(":"+port, handler))
 }
