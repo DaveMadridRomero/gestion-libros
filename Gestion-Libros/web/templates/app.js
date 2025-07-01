@@ -144,21 +144,50 @@ async function loadBooks() {
         if (response.ok) {
             booksTableBody.innerHTML = ''; // Limpiar tabla
             if (books.length === 0) {
-                booksTableBody.innerHTML = '<tr><td colspan="6" class="px-6 py-4 whitespace-nowrap text-center text-gray-500">No hay libros disponibles.</td></tr>';
+                // Se cambió el colspan a 7 para la nueva columna de "Acciones"
+                booksTableBody.innerHTML = '<tr><td colspan="7" class="px-6 py-4 whitespace-nowrap text-center text-gray-500">No hay libros disponibles.</td></tr>';
                 return;
             }
             books.forEach(book => {
-                const row = `
-                    <tr>
-                        <td class="px-6 py-4 whitespace-nowrap">${book.id}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">${book.title}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">${book.author}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">${book.genre}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">$${book.price.toFixed(2)}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">${book.stock}</td>
-                    </tr>
-                `;
-                booksTableBody.innerHTML += row;
+                const row = booksTableBody.insertRow(); // Usar insertRow para tener referencia a la fila y añadir eventos
+                
+                // Celdas de datos del libro
+                const idCell = row.insertCell(0);
+                idCell.classList.add('px-6', 'py-4', 'whitespace-nowrap');
+                idCell.textContent = book.id;
+
+                const titleCell = row.insertCell(1);
+                titleCell.classList.add('px-6', 'py-4', 'whitespace-nowrap');
+                titleCell.textContent = book.title;
+
+                const authorCell = row.insertCell(2);
+                authorCell.classList.add('px-6', 'py-4', 'whitespace-nowrap');
+                authorCell.textContent = book.author;
+
+                const genreCell = row.insertCell(3);
+                genreCell.classList.add('px-6', 'py-4', 'whitespace-nowrap');
+                genreCell.textContent = book.genre;
+
+                const priceCell = row.insertCell(4);
+                priceCell.classList.add('px-6', 'py-4', 'whitespace-nowrap');
+                priceCell.textContent = `$${book.price.toFixed(2)}`;
+
+                const stockCell = row.insertCell(5);
+                stockCell.classList.add('px-6', 'py-4', 'whitespace-nowrap');
+                stockCell.textContent = book.stock;
+
+                // Nueva celda para las acciones (eliminar, editar, etc.)
+                const actionsCell = row.insertCell(6);
+                actionsCell.classList.add('px-6', 'py-4', 'whitespace-nowrap', 'text-right', 'text-sm', 'font-medium');
+
+                const deleteButton = document.createElement('button');
+                deleteButton.textContent = 'Eliminar';
+                deleteButton.classList.add('btn-danger', 'btn-sm', 'ml-2'); // Tailwind classes o tu CSS
+                deleteButton.dataset.id = book.id; // Almacena el ID del libro en el botón
+
+                // Añadir el event listener para la función handleDeleteBook
+                deleteButton.addEventListener('click', handleDeleteBook);
+                actionsCell.appendChild(deleteButton);
             });
             showMessage('Libros cargados exitosamente', 'success');
         } else {
@@ -173,6 +202,47 @@ async function loadBooks() {
         showMessage('Error de red al cargar libros: ' + error.message, 'error');
     }
 }
+
+// --- NUEVA FUNCIÓN: Eliminar Libro ---
+async function handleDeleteBook(event) {
+    const bookId = event.target.dataset.id; // Obtener el ID del libro del atributo data-id del botón
+
+    if (!confirm(`¿Estás seguro de que quieres eliminar el libro con ID ${bookId}?`)) {
+        return; // Si el usuario cancela, no hacemos nada
+    }
+
+    if (!authToken) {
+        showMessage('No autenticado. Por favor, inicie sesión para eliminar libros.', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/books/${bookId}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}` // Es crucial enviar el token JWT
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage(data.message || 'Libro eliminado exitosamente.', 'success');
+            loadBooks(); // Recargar la lista de libros después de la eliminación exitosa
+        } else {
+            showMessage(data.message || 'Error al eliminar el libro.', 'error');
+            if (response.status === 401) {
+                showMessage('Sesión expirada o inválida. Por favor, inicie sesión de nuevo.', 'error');
+                logoutBtn.click();
+            }
+        }
+    } catch (error) {
+        console.error('Error en la solicitud de eliminación:', error);
+        showMessage('Error de conexión al intentar eliminar el libro.', 'error');
+    }
+}
+
 
 // Crear Libro
 createBookForm.addEventListener('submit', async (e) => {

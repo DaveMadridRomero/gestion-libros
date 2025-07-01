@@ -9,10 +9,10 @@ import (
 	"github.com/DaveMadridRomero/Gestion-Libros/internal/config"
 	"github.com/DaveMadridRomero/Gestion-Libros/internal/database"
 	"github.com/DaveMadridRomero/Gestion-Libros/internal/orders"
-	"github.com/DaveMadridRomero/Gestion-Libros/internal/users"
+	"github.com/DaveMadridRomero/Gestion-Libros/internal/users" // Asegúrate de que users esté importado
 
 	"github.com/gorilla/mux"
-	"github.com/rs/cors" // ¡Nueva importación!
+	"github.com/rs/cors"
 )
 
 func main() {
@@ -22,6 +22,16 @@ func main() {
 	// Conectar base de datos
 	database.Connect()
 
+	// --- ¡MUY IMPORTANTE! REALIZAR LA MIGRACIÓN DE LA BASE DE DATOS ---
+	// Esto creará las tablas 'users', 'books', 'orders' (y otras si las agregas)
+	// si no existen, basándose en tus structs.
+	err := database.DB.AutoMigrate(&users.User{}, &books.Book{}, &orders.Order{}) //
+	if err != nil {
+		log.Fatalf("Error al migrar la base de datos: %v", err) //
+	}
+	log.Println("Migración de la base de datos completada.") //
+	// --- FIN DE MIGRACIÓN ---
+
 	// Crear router
 	r := mux.NewRouter()
 
@@ -30,7 +40,7 @@ func main() {
 	books.RegisterRoutes(r)
 	orders.RegisterRoutes(r)
 
-	// --- Configuración CORS --- ¡Aquí va lo nuevo!
+	// --- Configuración CORS ---
 	c := cors.New(cors.Options{
 		AllowedOrigins:   []string{"*"},                                       // Permite cualquier origen (para desarrollo). En producción, especifica tus dominios.
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}, // Métodos permitidos
